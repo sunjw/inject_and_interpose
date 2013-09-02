@@ -221,17 +221,35 @@ static kern_return_t get_stuff(task_t task, cpu_type_t *cputype, struct addr_bun
 
     if(u.data.version <= 1) return KERN_NO_SPACE;
 
-#if defined(__i386__) || defined(__x86_64__) || defined(__ppc__)
-    // Try to guess whether the process is 64-bit,
-    bool proc64 = info.all_image_info_addr > 0;
-#else
-    bool proc64 = false;
-#endif
-    mach_vm_address_t dyldImageLoadAddress = proc64 ? u.data64.dyldImageLoadAddress : u.data.dyldImageLoadAddress;
-
+//#if defined(__i386__) || defined(__x86_64__) || defined(__ppc__)
+//    // Try to guess whether the process is 64-bit,
+//    bool proc64 = info.all_image_info_addr > 0;
+//#else
+//    bool proc64 = false;
+//#endif
+//    mach_vm_address_t dyldImageLoadAddress = proc64 ? u.data64.dyldImageLoadAddress : u.data.dyldImageLoadAddress;
+    
+    // try 64bit first.
+    mach_vm_address_t dyldImageLoadAddress = u.data64.dyldImageLoadAddress;
+    
     struct mach_header mach_hdr;
-    TRY(mach_vm_read_overwrite(task, dyldImageLoadAddress, sizeof(mach_hdr), address_cast(&mach_hdr), &data_size));
-
+    //TRY(mach_vm_read_overwrite(task, dyldImageLoadAddress, sizeof(mach_hdr), address_cast(&mach_hdr), &data_size));
+    if(mach_vm_read_overwrite(task,
+                              dyldImageLoadAddress,
+                              sizeof(mach_hdr),
+                              address_cast(&mach_hdr),
+                              &data_size))
+    {
+        // maybe not 64bit process, try 32bit.
+        dyldImageLoadAddress = u.data.dyldImageLoadAddress;
+        TRY(mach_vm_read_overwrite(task,
+                               dyldImageLoadAddress,
+                               sizeof(mach_hdr),
+                               address_cast(&mach_hdr),
+                                   &data_size));
+    }
+        
+    
     bool swap = mach_hdr.magic == MH_CIGAM || mach_hdr.magic == MH_CIGAM_64;
     bool mh64 = mach_hdr.magic == MH_MAGIC_64 || mach_hdr.magic == MH_CIGAM_64;
 
@@ -510,3 +528,4 @@ bad:
     if(exc) mach_port_deallocate(mach_task_self(), exc);
     return kr;
 }
+
